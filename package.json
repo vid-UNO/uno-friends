@@ -1,0 +1,1 @@
+{"dependencies":{"ws":"^8.18.0"},"description":"Real multiplayer UNO — friends join with a room code, server-authoritative game state over WebSocket.","engines":{"node":">=18"},"main":"server.js","name":"uno-friends","scripts":{"smoke":"node test/smoke.js","start":"node server.js"},"version":"1.0.0"}
