@@ -82,22 +82,92 @@ function isPlayable(card) {
   return card.color === state.currentColor || card.value === state.topCard.value;
 }
 
+const SYMBOL = { skip: '⊘', reverse: '⇄', draw2: '+2' };
+
+function symbolFor(card) {
+  if (card.color === 'wild') return card.value === 'wild4' ? '+4' : 'WILD';
+  return SYMBOL[card.value] || card.value;
+}
+
+function cornerEl(card, pos) {
+  const c = document.createElement('div');
+  c.className = 'card-corner ' + pos;
+  if (card.color === 'wild') {
+    const m = document.createElement('div');
+    m.className = 'mini-oval';
+    c.appendChild(m);
+  } else {
+    c.textContent = symbolFor(card);
+  }
+  return c;
+}
+
 function cardEl(card, opts) {
   const div = document.createElement('div');
   div.className = 'card ' + card.color + (opts.big ? ' big' : '');
   if (opts.playable) div.classList.add('playable');
   if (opts.dealt) div.classList.add('dealt');
   if (opts.pop) div.classList.add('pop');
-  const big = document.createElement('div');
-  big.className = 'big-val';
-  big.textContent = card.color === 'wild' ? (VALUE_LABEL[card.value] || card.value) : (VALUE_LABEL[card.value] || card.value);
-  const sub = document.createElement('div');
-  sub.className = 'sub';
-  sub.textContent = card.color === 'wild' ? 'WILD' : COLOR_NAMES[card.color].toUpperCase();
-  div.appendChild(big);
-  div.appendChild(sub);
+  if (card.color === 'wild') {
+    if (card.value === 'wild4') {
+      const chips = [['chip-tl', 'red'], ['chip-tr', 'yellow'], ['chip-br', 'green'], ['chip-bl', 'blue']];
+      for (const [pos, col] of chips) {
+        const chip = document.createElement('div');
+        chip.className = 'wild-chip ' + pos + ' ' + col;
+        div.appendChild(chip);
+      }
+      const big = document.createElement('div');
+      big.className = 'big-symbol';
+      big.textContent = '+4';
+      div.appendChild(big);
+    } else {
+      const oval = document.createElement('div');
+      oval.className = 'card-oval wild-oval';
+      div.appendChild(oval);
+      div.appendChild(cornerEl(card, 'tl'));
+      div.appendChild(cornerEl(card, 'br'));
+    }
+  } else {
+    const oval = document.createElement('div');
+    oval.className = 'card-oval';
+    const sym = document.createElement('div');
+    sym.className = 'card-symbol';
+    sym.textContent = symbolFor(card);
+    oval.appendChild(sym);
+    div.appendChild(oval);
+    div.appendChild(cornerEl(card, 'tl'));
+    div.appendChild(cornerEl(card, 'br'));
+  }
   if (opts.onClick) div.addEventListener('click', opts.onClick);
   return div;
+}
+
+function cardBackEl(mini) {
+  const div = document.createElement('div');
+  div.className = 'card-back' + (mini ? ' mini' : '');
+  return div;
+}
+
+// Animate a clone of a card from one spot to another (play / draw).
+function flyClone(sourceEl, targetEl, makeEl) {
+  if (!sourceEl || !targetEl || !makeEl) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const from = sourceEl.getBoundingClientRect();
+  const to = targetEl.getBoundingClientRect();
+  const clone = makeEl();
+  clone.classList.add('fly-clone');
+  clone.style.left = from.left + 'px';
+  clone.style.top = from.top + 'px';
+  clone.style.width = from.width + 'px';
+  clone.style.height = from.height + 'px';
+  document.body.appendChild(clone);
+  const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+  const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+  const anim = clone.animate([
+    { transform: 'translate(0, 0) rotate(0deg) scale(1)', opacity: 1 },
+    { transform: 'translate(' + dx + 'px, ' + dy + 'px) rotate(14deg) scale(0.92)', opacity: 0.9 },
+  ], { duration: 320, easing: 'cubic-bezier(.2,.7,.3,1)' });
+  anim.onfinish = () => clone.remove();
 }
 
 function render() {
@@ -140,21 +210,40 @@ function render() {
     $('rematchNote').classList.toggle('hidden', state.isHost);
   }
 
-  // Opponents
+  // Opponents — face-down backs at the top, one per card they hold
   const opp = $('opponents');
   opp.innerHTML = '';
   for (const p of state.players) {
     if (p.id === myId) continue;
     const div = document.createElement('div');
     div.className = 'opp' + (state.turnId === p.id && state.status === 'playing' ? ' turn' : '');
-    const name = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'opp-head';
+    const name = document.createElement('span');
     name.className = 'opp-name';
     name.textContent = p.name + (p.isHost ? ' 👑' : '');
-    const cards = document.createElement('div');
-    cards.className = 'opp-cards';
-    cards.textContent = '🃏 ' + p.cards + ' cards';
-    div.appendChild(name);
-    div.appendChild(cards);
+    const count = document.createElement('span');
+    count.className = 'opp-cards';
+    count.textContent = p.cards + ' cards';
+    head.appendChild(name);
+    head.appendChild(count);
+    div.appendChild(head);
+    const backs = document.createElement('div');
+    backs.className = 'opp-hand';
+    const show = Math.min(p.cards, 8);
+    for (let i = 0; i < show; i++) {
+      const b = cardBackEl(true);
+      const mid = (show - 1) / 2;
+      b.style.transform = 'rotate(' + ((i - mid) * 7) + 'deg)';
+      backs.appendChild(b);
+    }
+    if (p.cards > show) {
+      const more = document.createElement('div');
+      more.className = 'opp-more';
+      more.textContent = '+' + (p.cards - show);
+      backs.appendChild(more);
+    }
+    div.appendChild(backs);
     if (!p.connected) {
       const off = document.createElement('div');
       off.className = 'off';
@@ -200,16 +289,22 @@ function render() {
 
   // My hand
   const handEl = $('myHand');
+  handEl.classList.toggle('my-turn', myTurn && state.status === 'playing');
+  const handCards = state.hand || [];
+  const newCards = handCards.filter((c) => !prevHandIds.has(c.id));
   const newIds = new Set();
   handEl.innerHTML = '';
-  for (const card of state.hand || []) {
+  for (let i = 0; i < handCards.length; i++) {
+    const card = handCards[i];
     newIds.add(card.id);
     const playable = isPlayable(card);
+    const isNew = !prevHandIds.has(card.id);
     const el = cardEl(card, {
       playable,
-      dealt: !prevHandIds.has(card.id),
-      onClick: () => onCardClick(card),
+      dealt: isNew,
+      onClick: (ev) => onCardClick(card, ev.currentTarget),
     });
+    if (isNew && newCards.length >= 4) el.style.animationDelay = (i * 70) + 'ms';
     handEl.appendChild(el);
   }
   prevHandIds = newIds;
@@ -225,7 +320,7 @@ function render() {
   }
 }
 
-function onCardClick(card) {
+function onCardClick(card, el) {
   if (!state || state.status !== 'playing') return;
   if (state.turnId !== myId) { toast('Abhi teri baari nahi hai.'); return; }
   if (state.phase === 'drawnChoice' && card.id !== state.drawnCardId) {
@@ -238,6 +333,7 @@ function onCardClick(card) {
     $('colorModal').classList.remove('hidden');
     return;
   }
+  flyClone(el, $('discardCard'), () => cardEl(card, {}));
   send({ type: 'play', cardId: card.id });
 }
 
@@ -291,6 +387,7 @@ $('drawPile').addEventListener('click', () => {
   if (!state || state.status !== 'playing') return;
   if (state.turnId !== myId) { toast('Abhi teri baari nahi hai.'); return; }
   if (state.phase !== 'normal') { toast('Pehle kheche hue card ka faisla karo (khelo ya Pass).'); return; }
+  flyClone($('drawPile'), $('myHand'), () => cardBackEl(false));
   send({ type: 'draw' });
 });
 

@@ -214,6 +214,9 @@ function playCard(room, player, cardId, color) {
 
   player.hand.splice(idx, 1);
   room.discard.push(card);
+  // Normal (non-Wild) card khelne pe current color us card ke rang pe set hota hai.
+  // Iske bina rang starter/Wild wale pe atka rehta aur rang-match galat ho jata.
+  if (card.color !== 'wild') room.currentColor = card.color;
   log(room, player.name + ' ne ' + cardLabel(card) + ' khela.');
 
   // UNO rule: played to 1 card without calling UNO -> +2 penalty.
